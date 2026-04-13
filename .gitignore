@@ -1,0 +1,15 @@
+target/
+logs/
+project/target/
+project/project/
+.history
+.cache
+*.DS_Store
+.idea/
+*.idea/
+.idea_modules/
+.mvn
+.iml
+*.iml
+sampleDB/
+derby.log
