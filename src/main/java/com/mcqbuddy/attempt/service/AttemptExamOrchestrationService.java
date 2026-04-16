@@ -4,6 +4,7 @@ import com.mcqbuddy.attempt.api.dto.EvaluateAttemptAnswerRequest;
 import com.mcqbuddy.attempt.api.dto.EvaluateAttemptAnswerResponse;
 import com.mcqbuddy.attempt.api.dto.FinishAttemptResponse;
 import com.mcqbuddy.attempt.api.dto.ImportMarkingSchemeResponse;
+import com.mcqbuddy.attempt.api.dto.StartAttemptResponse;
 import com.mcqbuddy.attempt.repository.AttemptRepository;
 import com.mcqbuddy.attempt.repository.MarkingSchemeRepository;
 import com.mcqbuddy.bean.entity.attempt.Attempt;
@@ -20,6 +21,7 @@ import org.springframework.web.client.RestTemplate;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.net.URI;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -103,12 +105,36 @@ public class AttemptExamOrchestrationService {
         );
     }
 
+    public StartAttemptResponse startAttempt(int examPaperId) {
+        markingSchemeRepository.findDetailByExamPaperId(examPaperId)
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.NOT_FOUND,
+                        "Marking scheme for exam " + examPaperId + " not found. Import it first."));
+
+        ExamPaperPayload exam = fetchExam(examPaperId);
+        Instant startedAt = Instant.now();
+
+        Attempt attempt = new Attempt();
+        attempt.setExamPaperId(examPaperId);
+        attempt.setStartedAt(startedAt);
+        attempt.setTotalTimeSeconds(exam.totalTime());
+
+        Attempt saved = attemptRepository.save(attempt);
+        return new StartAttemptResponse(
+                saved.getId(),
+                examPaperId,
+                saved.getStartedAt(),
+                saved.getTotalTimeSeconds()
+        );
+    }
+
     public EvaluateAttemptAnswerResponse evaluateAndRecord(EvaluateAttemptAnswerRequest request) {
         if (request == null
+                || request.attemptId() == null
                 || request.examPaperId() == null
                 || request.questionNumber() == null
                 || request.selectedOptionNumber() == null) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "examPaperId, questionNumber, and selectedOptionNumber are required.");
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "attemptId, examPaperId, questionNumber, and selectedOptionNumber are required.");
         }
 
         int examPaperId = request.examPaperId();
@@ -136,12 +162,12 @@ public class AttemptExamOrchestrationService {
 
         boolean isCorrect = selectedOptionNumber == correctOptionNumber;
 
-        Attempt attempt = attemptRepository.findFirstByExamPaperIdOrderByIdDesc(examPaperId)
-                .orElseGet(() -> {
-                    Attempt created = new Attempt();
-                    created.setExamPaperId(examPaperId);
-                    return created;
-                });
+        Attempt attempt = attemptRepository.findDetailById(request.attemptId())
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Attempt not found."));
+
+        if (attempt.getExamPaperId() == null || attempt.getExamPaperId() != examPaperId) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "attemptId does not match examPaperId.");
+        }
 
         AttemptQuestion attemptQuestion = attempt.getAttemptQuestions().stream()
                 .filter(q -> q.getQuestionNumber() != null && q.getQuestionNumber() == questionNumber)

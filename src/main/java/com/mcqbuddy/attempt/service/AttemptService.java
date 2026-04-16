@@ -60,6 +60,12 @@ public class AttemptService {
         if (incoming.getExamPaperId() != null) {
             existing.setExamPaperId(incoming.getExamPaperId());
         }
+        if (incoming.getStartedAt() != null) {
+            existing.setStartedAt(incoming.getStartedAt());
+        }
+        if (incoming.getTotalTimeSeconds() != null) {
+            existing.setTotalTimeSeconds(incoming.getTotalTimeSeconds());
+        }
         if (incoming.getAttemptQuestions() != null && !incoming.getAttemptQuestions().isEmpty()) {
             existing.getAttemptQuestions().clear();
             for (AttemptQuestion q : incoming.getAttemptQuestions()) {

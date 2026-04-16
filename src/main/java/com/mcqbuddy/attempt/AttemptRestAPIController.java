@@ -1,6 +1,7 @@
 package com.mcqbuddy.attempt;
 
 import com.mcqbuddy.attempt.api.dto.EvaluateAttemptAnswerRequest;
+import com.mcqbuddy.attempt.api.dto.StartAttemptResponse;
 import com.mcqbuddy.attempt.service.AttemptExamOrchestrationService;
 import com.mcqbuddy.attempt.service.AttemptService;
 import com.mcqbuddy.bean.entity.attempt.Attempt;
@@ -56,6 +57,11 @@ public class AttemptRestAPIController {
     @PostMapping(value = "/exams/{examId}/import-marking-scheme")
     public ResponseEntity<?> importMarkingSchemeFromExam(@PathVariable int examId) {
         return ResponseEntity.ok(orchestrationService.importMarkingSchemeFromExam(examId));
+    }
+
+    @PostMapping(value = "/exams/{examId}/start")
+    public ResponseEntity<StartAttemptResponse> startAttempt(@PathVariable int examId) {
+        return ResponseEntity.ok(orchestrationService.startAttempt(examId));
     }
 
     @PostMapping(value = "/answer-selections")

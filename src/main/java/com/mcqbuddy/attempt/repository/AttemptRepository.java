@@ -10,7 +10,4 @@ public interface AttemptRepository extends JpaRepository<Attempt, Integer> {
 
     @EntityGraph(attributePaths = {"attemptQuestions", "attemptQuestions.attemptAnswers"})
     Optional<Attempt> findDetailById(Integer id);
-
-    @EntityGraph(attributePaths = {"attemptQuestions", "attemptQuestions.attemptAnswers"})
-    Optional<Attempt> findFirstByExamPaperIdOrderByIdDesc(Integer examPaperId);
 }
