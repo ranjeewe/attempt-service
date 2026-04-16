@@ -280,7 +280,10 @@ public class AttemptExamOrchestrationService {
 
     private record ExamPaperPayload(
             Integer id,
+            String name,
             String subject,
+            String description,
+            Integer totalTime,
             List<ExamQuestionPayload> questions
     ) {
     }
