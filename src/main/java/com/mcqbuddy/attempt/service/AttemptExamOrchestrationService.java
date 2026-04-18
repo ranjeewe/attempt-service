@@ -117,7 +117,7 @@ public class AttemptExamOrchestrationService {
         Attempt attempt = new Attempt();
         attempt.setExamPaperId(examPaperId);
         attempt.setStartedAt(startedAt);
-        attempt.setTotalTimeSeconds(exam.totalTime());
+        attempt.setTotalTimeSeconds(exam.totalTime() == null ? null : exam.totalTime() * 60);
 
         Attempt saved = attemptRepository.save(attempt);
         return new StartAttemptResponse(
