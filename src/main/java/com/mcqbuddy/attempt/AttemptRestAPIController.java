@@ -5,6 +5,7 @@ import com.mcqbuddy.attempt.api.dto.StartAttemptResponse;
 import com.mcqbuddy.attempt.service.AttemptExamOrchestrationService;
 import com.mcqbuddy.attempt.service.AttemptService;
 import com.mcqbuddy.bean.entity.attempt.Attempt;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -12,6 +13,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -55,13 +57,17 @@ public class AttemptRestAPIController {
     }
 
     @PostMapping(value = "/exams/{examId}/import-marking-scheme")
-    public ResponseEntity<?> importMarkingSchemeFromExam(@PathVariable int examId) {
-        return ResponseEntity.ok(orchestrationService.importMarkingSchemeFromExam(examId));
+    public ResponseEntity<?> importMarkingSchemeFromExam(
+            @PathVariable int examId,
+            @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorization) {
+        return ResponseEntity.ok(orchestrationService.importMarkingSchemeFromExam(examId, authorization));
     }
 
     @PostMapping(value = "/exams/{examId}/start")
-    public ResponseEntity<StartAttemptResponse> startAttempt(@PathVariable int examId) {
-        return ResponseEntity.ok(orchestrationService.startAttempt(examId));
+    public ResponseEntity<StartAttemptResponse> startAttempt(
+            @PathVariable int examId,
+            @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorization) {
+        return ResponseEntity.ok(orchestrationService.startAttempt(examId, authorization));
     }
 
     @PostMapping(value = "/answer-selections")

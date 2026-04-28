@@ -14,7 +14,11 @@ import com.mcqbuddy.bean.entity.markingscheme.CorrectAnswer;
 import com.mcqbuddy.bean.entity.markingscheme.MarkingScheme;
 import com.mcqbuddy.bean.entity.markingscheme.Question;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestTemplate;
@@ -23,6 +27,7 @@ import org.springframework.web.server.ResponseStatusException;
 import java.net.URI;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Set;
@@ -45,8 +50,8 @@ public class AttemptExamOrchestrationService {
         this.examServiceBaseUrl = examServiceBaseUrl;
     }
 
-    public ImportMarkingSchemeResponse importMarkingSchemeFromExam(int examPaperId) {
-        ExamPaperPayload exam = fetchExam(examPaperId);
+    public ImportMarkingSchemeResponse importMarkingSchemeFromExam(int examPaperId, String authorizationHeader) {
+        ExamPaperPayload exam = fetchExam(examPaperId, authorizationHeader);
 
         List<ExamQuestionPayload> examQuestions = new ArrayList<>(exam.questions() == null ? List.of() : exam.questions());
         examQuestions.sort(Comparator.comparingInt(q -> q.questionNumber() == null ? 0 : q.questionNumber()));
@@ -105,13 +110,13 @@ public class AttemptExamOrchestrationService {
         );
     }
 
-    public StartAttemptResponse startAttempt(int examPaperId) {
+    public StartAttemptResponse startAttempt(int examPaperId, String authorizationHeader) {
         markingSchemeRepository.findDetailByExamPaperId(examPaperId)
                 .orElseThrow(() -> new ResponseStatusException(
                         HttpStatus.NOT_FOUND,
                         "Marking scheme for exam " + examPaperId + " not found. Import it first."));
 
-        ExamPaperPayload exam = fetchExam(examPaperId);
+        ExamPaperPayload exam = fetchExam(examPaperId, authorizationHeader);
         Instant startedAt = Instant.now();
 
         Attempt attempt = new Attempt();
@@ -239,7 +244,7 @@ public class AttemptExamOrchestrationService {
     }
 
     @SuppressWarnings("null")
-    private ExamPaperPayload fetchExam(int examPaperId) {
+    private ExamPaperPayload fetchExam(int examPaperId, String authorizationHeader) {
         String primary = examServiceBaseUrl + "/exam-api/exams/" + examPaperId;
         String dockerFallback = "http://exam-service:8092/exam-api/exams/" + examPaperId;
         String localFallback = "http://localhost:8092/exam-api/exams/" + examPaperId;
@@ -253,10 +258,22 @@ public class AttemptExamOrchestrationService {
             candidates.add(localFallback);
         }
 
+        HttpHeaders headers = new HttpHeaders();
+        headers.setAccept(Collections.singletonList(MediaType.APPLICATION_JSON));
+        if (authorizationHeader != null && !authorizationHeader.isBlank()) {
+            headers.set(HttpHeaders.AUTHORIZATION, authorizationHeader.trim());
+        }
+        HttpEntity<Void> requestEntity = new HttpEntity<>(headers);
+
         RestClientException lastException = null;
         for (String url : candidates) {
             try {
-                ExamPaperPayload exam = restTemplate.getForObject(URI.create(url), ExamPaperPayload.class);
+                var response = restTemplate.exchange(
+                        URI.create(url),
+                        HttpMethod.GET,
+                        requestEntity,
+                        ExamPaperPayload.class);
+                ExamPaperPayload exam = response.getBody();
                 if (exam == null || exam.id() == null) {
                     continue;
                 }
