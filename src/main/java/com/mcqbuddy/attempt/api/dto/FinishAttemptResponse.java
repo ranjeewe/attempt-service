@@ -2,7 +2,7 @@ package com.mcqbuddy.attempt.api.dto;
 
 public record FinishAttemptResponse(
         int attemptId,
-        int examPaperId,
+        String examPublicKey,
         int correctAnswers,
         int totalQuestions,
         double percentage

@@ -57,8 +57,8 @@ public class AttemptService {
             throw new ResponseStatusException(NOT_FOUND, "Attempt not found");
         }
         Attempt existing = existingOpt.get();
-        if (incoming.getExamPaperId() != null) {
-            existing.setExamPaperId(incoming.getExamPaperId());
+        if (incoming.getExamPublicKey() != null) {
+            existing.setExamPublicKey(incoming.getExamPublicKey());
         }
         if (incoming.getStartedAt() != null) {
             existing.setStartedAt(incoming.getStartedAt());

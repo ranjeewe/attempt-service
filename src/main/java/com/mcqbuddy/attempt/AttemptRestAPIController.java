@@ -56,18 +56,18 @@ public class AttemptRestAPIController {
         return ResponseEntity.noContent().build();
     }
 
-    @PostMapping(value = "/exams/{examId}/import-marking-scheme")
+    @PostMapping(value = "/exams/{examPublicKey}/import-marking-scheme")
     public ResponseEntity<?> importMarkingSchemeFromExam(
-            @PathVariable int examId,
+            @PathVariable String examPublicKey,
             @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorization) {
-        return ResponseEntity.ok(orchestrationService.importMarkingSchemeFromExam(examId, authorization));
+        return ResponseEntity.ok(orchestrationService.importMarkingSchemeFromExam(examPublicKey, authorization));
     }
 
-    @PostMapping(value = "/exams/{examId}/start")
+    @PostMapping(value = "/exams/{examPublicKey}/start")
     public ResponseEntity<StartAttemptResponse> startAttempt(
-            @PathVariable int examId,
+            @PathVariable String examPublicKey,
             @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorization) {
-        return ResponseEntity.ok(orchestrationService.startAttempt(examId, authorization));
+        return ResponseEntity.ok(orchestrationService.startAttempt(examPublicKey, authorization));
     }
 
     @PostMapping(value = "/answer-selections")

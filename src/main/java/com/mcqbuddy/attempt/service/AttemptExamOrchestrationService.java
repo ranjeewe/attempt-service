@@ -13,6 +13,8 @@ import com.mcqbuddy.bean.entity.attempt.AttemptQuestion;
 import com.mcqbuddy.bean.entity.markingscheme.CorrectAnswer;
 import com.mcqbuddy.bean.entity.markingscheme.MarkingScheme;
 import com.mcqbuddy.bean.entity.markingscheme.Question;
+import com.mcqbuddy.attempt.security.BearerRoleChecker;
+import com.mcqbuddy.common.ExamPublicKeys;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
@@ -20,6 +22,7 @@ import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
+import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.web.server.ResponseStatusException;
@@ -38,27 +41,32 @@ public class AttemptExamOrchestrationService {
 
     private final MarkingSchemeRepository markingSchemeRepository;
     private final AttemptRepository attemptRepository;
+    private final BearerRoleChecker bearerRoleChecker;
     private final RestTemplate restTemplate = new RestTemplate();
     private final String examServiceBaseUrl;
 
     public AttemptExamOrchestrationService(
             MarkingSchemeRepository markingSchemeRepository,
             AttemptRepository attemptRepository,
+            BearerRoleChecker bearerRoleChecker,
             @Value("${exam.service.base-url:http://localhost:8092}") String examServiceBaseUrl) {
         this.markingSchemeRepository = markingSchemeRepository;
         this.attemptRepository = attemptRepository;
+        this.bearerRoleChecker = bearerRoleChecker;
         this.examServiceBaseUrl = examServiceBaseUrl;
     }
 
-    public ImportMarkingSchemeResponse importMarkingSchemeFromExam(int examPaperId, String authorizationHeader) {
-        ExamPaperPayload exam = fetchExam(examPaperId, authorizationHeader);
+    public ImportMarkingSchemeResponse importMarkingSchemeFromExam(String examPublicKeyRaw, String authorizationHeader) {
+        String examPk = requireExamPublicKey(examPublicKeyRaw);
+        ExamPaperPayload exam = fetchExam(examPk, authorizationHeader);
+        ensureGuestMayAccessExam(exam, authorizationHeader);
 
         List<ExamQuestionPayload> examQuestions = new ArrayList<>(exam.questions() == null ? List.of() : exam.questions());
         examQuestions.sort(Comparator.comparingInt(q -> q.questionNumber() == null ? 0 : q.questionNumber()));
 
-        MarkingScheme markingScheme = markingSchemeRepository.findDetailByExamPaperId(examPaperId)
-                .orElseGet(MarkingScheme::new);
-        markingScheme.setExamPaperId(examPaperId);
+        MarkingScheme markingScheme =
+                markingSchemeRepository.findDetailByExamPublicKeyIgnoreCase(examPk).orElseGet(MarkingScheme::new);
+        markingScheme.setExamPublicKey(examPk);
 
         // Replace existing rows for this exam to keep schema aligned with source exam.
         markingScheme.getQuestions().clear();
@@ -104,30 +112,34 @@ public class AttemptExamOrchestrationService {
         MarkingScheme saved = markingSchemeRepository.save(markingScheme);
         return new ImportMarkingSchemeResponse(
                 saved.getId(),
-                examPaperId,
+                examPk,
                 examQuestions.size(),
                 importedCorrectAnswers
         );
     }
 
-    public StartAttemptResponse startAttempt(int examPaperId, String authorizationHeader) {
-        markingSchemeRepository.findDetailByExamPaperId(examPaperId)
-                .orElseThrow(() -> new ResponseStatusException(
-                        HttpStatus.NOT_FOUND,
-                        "Marking scheme for exam " + examPaperId + " not found. Import it first."));
+    public StartAttemptResponse startAttempt(String examPublicKeyRaw, String authorizationHeader) {
+        String examPk = requireExamPublicKey(examPublicKeyRaw);
+        markingSchemeRepository
+                .findDetailByExamPublicKeyIgnoreCase(examPk)
+                .orElseThrow(
+                        () -> new ResponseStatusException(
+                                HttpStatus.NOT_FOUND,
+                                "Marking scheme for exam " + examPk + " not found. Import it first."));
 
-        ExamPaperPayload exam = fetchExam(examPaperId, authorizationHeader);
+        ExamPaperPayload exam = fetchExam(examPk, authorizationHeader);
+        ensureGuestMayAccessExam(exam, authorizationHeader);
         Instant startedAt = Instant.now();
 
         Attempt attempt = new Attempt();
-        attempt.setExamPaperId(examPaperId);
+        attempt.setExamPublicKey(examPk);
         attempt.setStartedAt(startedAt);
         attempt.setTotalTimeSeconds(exam.totalTime() == null ? null : exam.totalTime() * 60);
 
         Attempt saved = attemptRepository.save(attempt);
         return new StartAttemptResponse(
                 saved.getId(),
-                examPaperId,
+                examPk,
                 saved.getStartedAt(),
                 saved.getTotalTimeSeconds()
         );
@@ -136,53 +148,67 @@ public class AttemptExamOrchestrationService {
     public EvaluateAttemptAnswerResponse evaluateAndRecord(EvaluateAttemptAnswerRequest request) {
         if (request == null
                 || request.attemptId() == null
-                || request.examPaperId() == null
+                || request.examPublicKey() == null
+                || request.examPublicKey().isBlank()
                 || request.questionNumber() == null
                 || request.selectedOptionNumber() == null) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "attemptId, examPaperId, questionNumber, and selectedOptionNumber are required.");
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "attemptId, examPublicKey, questionNumber, and selectedOptionNumber are required.");
         }
 
-        int examPaperId = request.examPaperId();
+        String examPk = ExamPublicKeys.normalize(request.examPublicKey());
         int questionNumber = request.questionNumber();
         int selectedOptionNumber = request.selectedOptionNumber();
 
-        MarkingScheme markingScheme = markingSchemeRepository.findDetailByExamPaperId(examPaperId)
-                .orElseThrow(() -> new ResponseStatusException(
-                        HttpStatus.NOT_FOUND,
-                        "Marking scheme for exam " + examPaperId + " not found. Import it first."));
+        MarkingScheme markingScheme =
+                markingSchemeRepository
+                        .findDetailByExamPublicKeyIgnoreCase(examPk)
+                        .orElseThrow(
+                                () -> new ResponseStatusException(
+                                        HttpStatus.NOT_FOUND,
+                                        "Marking scheme for exam " + examPk + " not found. Import it first."));
 
-        Question msQuestion = markingScheme.getQuestions().stream()
-                .filter(q -> q.getQuestionNumber() != null && q.getQuestionNumber() == questionNumber)
-                .findFirst()
-                .orElseThrow(() -> new ResponseStatusException(
-                        HttpStatus.NOT_FOUND,
-                        "No marking-scheme entry for question " + questionNumber + "."));
+        Question msQuestion =
+                markingScheme.getQuestions().stream()
+                        .filter(q -> q.getQuestionNumber() != null && q.getQuestionNumber() == questionNumber)
+                        .findFirst()
+                        .orElseThrow(
+                                () -> new ResponseStatusException(
+                                        HttpStatus.NOT_FOUND,
+                                        "No marking-scheme entry for question " + questionNumber + "."));
 
-        Integer correctOptionNumber = msQuestion.getCorrectAnswers().stream()
-                .map(CorrectAnswer::getOptionNumber)
-                .findFirst()
-                .orElseThrow(() -> new ResponseStatusException(
-                        HttpStatus.NOT_FOUND,
-                        "No correct option found for question " + questionNumber + "."));
+        Integer correctOptionNumber =
+                msQuestion.getCorrectAnswers().stream()
+                        .map(CorrectAnswer::getOptionNumber)
+                        .findFirst()
+                        .orElseThrow(
+                                () -> new ResponseStatusException(
+                                        HttpStatus.NOT_FOUND,
+                                        "No correct option found for question " + questionNumber + "."));
 
         boolean isCorrect = selectedOptionNumber == correctOptionNumber;
 
-        Attempt attempt = attemptRepository.findDetailById(request.attemptId())
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Attempt not found."));
+        Attempt attempt =
+                attemptRepository
+                        .findDetailById(request.attemptId())
+                        .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Attempt not found."));
 
-        if (attempt.getExamPaperId() == null || attempt.getExamPaperId() != examPaperId) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "attemptId does not match examPaperId.");
+        if (attempt.getExamPublicKey() == null || !attempt.getExamPublicKey().equalsIgnoreCase(examPk)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "attemptId does not match examPublicKey.");
         }
 
-        AttemptQuestion attemptQuestion = attempt.getAttemptQuestions().stream()
-                .filter(q -> q.getQuestionNumber() != null && q.getQuestionNumber() == questionNumber)
-                .findFirst()
-                .orElseGet(() -> {
-                    AttemptQuestion q = new AttemptQuestion();
-                    q.setQuestionNumber(questionNumber);
-                    attempt.addQuestion(q);
-                    return q;
-                });
+        AttemptQuestion attemptQuestion =
+                attempt.getAttemptQuestions().stream()
+                        .filter(q -> q.getQuestionNumber() != null && q.getQuestionNumber() == questionNumber)
+                        .findFirst()
+                        .orElseGet(
+                                () -> {
+                                    AttemptQuestion q = new AttemptQuestion();
+                                    q.setQuestionNumber(questionNumber);
+                                    attempt.addQuestion(q);
+                                    return q;
+                                });
 
         Set<AttemptAnswer> existingAnswers = attemptQuestion.getAttemptAnswers();
         existingAnswers.clear();
@@ -197,7 +223,7 @@ public class AttemptExamOrchestrationService {
 
         return new EvaluateAttemptAnswerResponse(
                 savedAttempt.getId(),
-                examPaperId,
+                examPk,
                 questionNumber,
                 selectedOptionNumber,
                 correctOptionNumber,
@@ -206,16 +232,20 @@ public class AttemptExamOrchestrationService {
     }
 
     public FinishAttemptResponse finishAttempt(int attemptId) {
-        Attempt attempt = attemptRepository.findDetailById(attemptId)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Attempt not found."));
-        if (attempt.getExamPaperId() == null) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Attempt is missing examPaperId.");
+        Attempt attempt =
+                attemptRepository.findDetailById(attemptId).orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Attempt not found."));
+        if (attempt.getExamPublicKey() == null || attempt.getExamPublicKey().isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Attempt is missing examPublicKey.");
         }
 
-        MarkingScheme markingScheme = markingSchemeRepository.findDetailByExamPaperId(attempt.getExamPaperId())
-                .orElseThrow(() -> new ResponseStatusException(
-                        HttpStatus.NOT_FOUND,
-                        "Marking scheme for exam " + attempt.getExamPaperId() + " not found."));
+        String examPk = attempt.getExamPublicKey();
+        MarkingScheme markingScheme =
+                markingSchemeRepository
+                        .findDetailByExamPublicKeyIgnoreCase(examPk)
+                        .orElseThrow(
+                                () -> new ResponseStatusException(
+                                        HttpStatus.NOT_FOUND,
+                                        "Marking scheme for exam " + examPk + " not found."));
 
         int totalQuestions = markingScheme.getQuestions() == null ? 0 : markingScheme.getQuestions().size();
         if (totalQuestions <= 0) {
@@ -225,8 +255,9 @@ public class AttemptExamOrchestrationService {
         int correctAnswers = 0;
         if (attempt.getAttemptQuestions() != null) {
             for (AttemptQuestion q : attempt.getAttemptQuestions()) {
-                boolean questionCorrect = q.getAttemptAnswers() != null
-                        && q.getAttemptAnswers().stream().anyMatch(AttemptAnswer::isCorrect);
+                boolean questionCorrect =
+                        q.getAttemptAnswers() != null
+                                && q.getAttemptAnswers().stream().anyMatch(AttemptAnswer::isCorrect);
                 if (questionCorrect) {
                     correctAnswers++;
                 }
@@ -236,18 +267,37 @@ public class AttemptExamOrchestrationService {
         double percentage = (correctAnswers * 100.0) / totalQuestions;
         return new FinishAttemptResponse(
                 attempt.getId(),
-                attempt.getExamPaperId(),
+                examPk,
                 correctAnswers,
                 totalQuestions,
                 percentage
         );
     }
 
+    private void ensureGuestMayAccessExam(ExamPaperPayload exam, String authorizationHeader) {
+        if (Boolean.TRUE.equals(exam.publicExam())) {
+            return;
+        }
+        if (bearerRoleChecker.isStaff(authorizationHeader)) {
+            return;
+        }
+        throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Exam not found.");
+    }
+
+    private static String requireExamPublicKey(String raw) {
+        String pk = ExamPublicKeys.normalize(raw);
+        if (pk == null || pk.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "examPublicKey is required.");
+        }
+        return pk;
+    }
+
     @SuppressWarnings("null")
-    private ExamPaperPayload fetchExam(int examPaperId, String authorizationHeader) {
-        String primary = examServiceBaseUrl + "/exam-api/exams/" + examPaperId;
-        String dockerFallback = "http://exam-service:8092/exam-api/exams/" + examPaperId;
-        String localFallback = "http://localhost:8092/exam-api/exams/" + examPaperId;
+    private ExamPaperPayload fetchExam(String examPublicKey, String authorizationHeader) {
+        String encodedPath = examPublicKey;
+        String primary = examServiceBaseUrl + "/exam-api/exams/by-key/" + encodedPath;
+        String dockerFallback = "http://exam-service:8092/exam-api/exams/by-key/" + encodedPath;
+        String localFallback = "http://localhost:8092/exam-api/exams/by-key/" + encodedPath;
 
         List<String> candidates = new ArrayList<>();
         candidates.add(primary);
@@ -268,16 +318,19 @@ public class AttemptExamOrchestrationService {
         RestClientException lastException = null;
         for (String url : candidates) {
             try {
-                var response = restTemplate.exchange(
-                        URI.create(url),
-                        HttpMethod.GET,
-                        requestEntity,
-                        ExamPaperPayload.class);
+                var response =
+                        restTemplate.exchange(
+                                URI.create(url),
+                                HttpMethod.GET,
+                                requestEntity,
+                                ExamPaperPayload.class);
                 ExamPaperPayload exam = response.getBody();
                 if (exam == null || exam.id() == null) {
                     continue;
                 }
                 return exam;
+            } catch (HttpClientErrorException.NotFound e) {
+                throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Exam not found.", e);
             } catch (RestClientException e) {
                 lastException = e;
             }
@@ -285,8 +338,7 @@ public class AttemptExamOrchestrationService {
 
         throw new ResponseStatusException(
                 HttpStatus.BAD_GATEWAY,
-                "Failed to load exam from exam-service for id " + examPaperId
-                        + ". Tried base URLs: " + String.join(", ", candidates),
+                "Failed to load exam from exam-service for public key " + examPublicKey + ". Tried base URLs: " + String.join(", ", candidates),
                 lastException
         );
     }
@@ -323,10 +375,12 @@ public class AttemptExamOrchestrationService {
 
     private record ExamPaperPayload(
             Integer id,
+            String publicKey,
             String name,
             String subject,
             String description,
             Integer totalTime,
+            Boolean publicExam,
             List<ExamQuestionPayload> questions
     ) {
     }

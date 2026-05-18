@@ -2,7 +2,7 @@ package com.mcqbuddy.attempt.api.dto;
 
 public record EvaluateAttemptAnswerResponse(
         int attemptId,
-        int examPaperId,
+        String examPublicKey,
         int questionNumber,
         int selectedOptionNumber,
         int correctOptionNumber,

@@ -2,7 +2,7 @@ package com.mcqbuddy.attempt.api.dto;
 
 public record ImportMarkingSchemeResponse(
         int markingSchemeId,
-        int examPaperId,
+        String examPublicKey,
         int importedQuestions,
         int importedCorrectAnswers
 ) {

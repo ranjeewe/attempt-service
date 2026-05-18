@@ -12,5 +12,5 @@ public interface MarkingSchemeRepository extends JpaRepository<MarkingScheme, In
     Optional<MarkingScheme> findDetailById(Integer id);
 
     @EntityGraph(attributePaths = {"questions", "questions.correctAnswers"})
-    Optional<MarkingScheme> findDetailByExamPaperId(Integer examPaperId);
+    Optional<MarkingScheme> findDetailByExamPublicKeyIgnoreCase(String examPublicKey);
 }

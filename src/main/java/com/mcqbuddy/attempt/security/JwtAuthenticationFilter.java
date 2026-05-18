@@ -7,6 +7,7 @@ import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import org.springframework.lang.NonNull;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpHeaders;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
@@ -34,13 +35,31 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     private String jwtSecret;
 
     @Override
-    protected boolean shouldNotFilter(HttpServletRequest request) {
+    protected boolean shouldNotFilter(@NonNull HttpServletRequest request) {
         String path = request.getServletPath();
-        return path == null || !path.startsWith(API_PREFIX);
+        String method = request.getMethod();
+        if (path == null || !path.startsWith(API_PREFIX)) {
+            return true;
+        }
+        if ("PUT".equalsIgnoreCase(method) && path.matches("^/attempt-api/attempts/\\d+$")) {
+            return true;
+        }
+        if ("POST".equalsIgnoreCase(method) && path.matches("^/attempt-api/attempts/exams/[^/]+/import-marking-scheme$")) {
+            return true;
+        }
+        if ("POST".equalsIgnoreCase(method) && path.matches("^/attempt-api/attempts/exams/[^/]+/start$")) {
+            return true;
+        }
+        if ("POST".equalsIgnoreCase(method) && "/attempt-api/attempts/answer-selections".equals(path)) {
+            return true;
+        }
+        return "POST".equalsIgnoreCase(method) && path.matches("^/attempt-api/attempts/\\d+/finish$");
     }
 
     @Override
-    protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
+    protected void doFilterInternal(@NonNull HttpServletRequest request,
+                                    @NonNull HttpServletResponse response,
+                                    @NonNull FilterChain filterChain)
             throws ServletException, IOException {
         String header = request.getHeader(HttpHeaders.AUTHORIZATION);
         if (header == null || !header.startsWith("Bearer ")) {

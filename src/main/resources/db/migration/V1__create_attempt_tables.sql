@@ -9,7 +9,9 @@ CREATE SEQUENCE IF NOT EXISTS attempt.correctanswer_id_seq;
 
 CREATE TABLE attempt.attempt (
     id INTEGER NOT NULL DEFAULT nextval('attempt.attempt_id_seq') PRIMARY KEY,
-    exam_paper_id INTEGER
+    exam_public_key VARCHAR(36),
+    started_at TIMESTAMP WITH TIME ZONE,
+    total_time_seconds INTEGER
 );
 
 CREATE TABLE attempt.attemptquestion (
@@ -29,7 +31,8 @@ CREATE TABLE attempt.attemptanswer (
 );
 
 CREATE TABLE attempt.markingschema (
-    id INTEGER NOT NULL DEFAULT nextval('attempt.markingschema_id_seq') PRIMARY KEY
+    id INTEGER NOT NULL DEFAULT nextval('attempt.markingschema_id_seq') PRIMARY KEY,
+    exam_public_key VARCHAR(36)
 );
 
 CREATE TABLE attempt.question (
@@ -45,3 +48,6 @@ CREATE TABLE attempt.correctanswer (
     option_number INTEGER,
     CONSTRAINT fk_correctanswer_question FOREIGN KEY (questionid) REFERENCES attempt.question(id)
 );
+
+CREATE INDEX IF NOT EXISTS idx_markingschema_exam_public_key
+    ON attempt.markingschema (exam_public_key);

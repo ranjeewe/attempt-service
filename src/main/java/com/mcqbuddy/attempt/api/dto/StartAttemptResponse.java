@@ -4,7 +4,7 @@ import java.time.Instant;
 
 public record StartAttemptResponse(
         int attemptId,
-        int examPaperId,
+        String examPublicKey,
         Instant startedAt,
         Integer totalTimeSeconds
 ) {
