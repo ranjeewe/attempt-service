@@ -42,6 +42,7 @@ public class AttemptExamOrchestrationService {
     private final MarkingSchemeRepository markingSchemeRepository;
     private final AttemptRepository attemptRepository;
     private final BearerRoleChecker bearerRoleChecker;
+    private final ExamInstituteAccessService examInstituteAccessService;
     private final RestTemplate restTemplate = new RestTemplate();
     private final String examServiceBaseUrl;
 
@@ -49,10 +50,12 @@ public class AttemptExamOrchestrationService {
             MarkingSchemeRepository markingSchemeRepository,
             AttemptRepository attemptRepository,
             BearerRoleChecker bearerRoleChecker,
+            ExamInstituteAccessService examInstituteAccessService,
             @Value("${exam.service.base-url:http://localhost:8092}") String examServiceBaseUrl) {
         this.markingSchemeRepository = markingSchemeRepository;
         this.attemptRepository = attemptRepository;
         this.bearerRoleChecker = bearerRoleChecker;
+        this.examInstituteAccessService = examInstituteAccessService;
         this.examServiceBaseUrl = examServiceBaseUrl;
     }
 
@@ -279,6 +282,13 @@ public class AttemptExamOrchestrationService {
             return;
         }
         if (bearerRoleChecker.isStaff(authorizationHeader)) {
+            return;
+        }
+        String studentPublicId = bearerRoleChecker.callerPublicId(authorizationHeader);
+        String examKey = exam.publicKey();
+        if (studentPublicId != null
+                && examKey != null
+                && examInstituteAccessService.isExamAssignedToStudent(studentPublicId, examKey)) {
             return;
         }
         throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Exam not found.");

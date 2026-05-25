@@ -18,30 +18,49 @@ public class BearerRoleChecker {
     private String jwtSecret;
 
     public boolean isStaff(String authorizationHeader) {
-        if (authorizationHeader == null || !authorizationHeader.startsWith("Bearer ")) {
+        Claims claims = parseClaims(authorizationHeader);
+        if (claims == null) {
             return false;
+        }
+        Object rolesClaim = claims.get("roles");
+        if (!(rolesClaim instanceof List<?> roles)) {
+            return false;
+        }
+        for (Object role : roles) {
+            if (role instanceof String roleName) {
+                String normalized = roleName.trim().toUpperCase();
+                if ("TEACHER".equals(normalized) || "ADMIN".equals(normalized)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    public String callerPublicId(String authorizationHeader) {
+        Claims claims = parseClaims(authorizationHeader);
+        if (claims == null) {
+            return null;
+        }
+        String publicId = claims.get("publicId", String.class);
+        if (publicId == null || publicId.isBlank()) {
+            return null;
+        }
+        return publicId.trim().toLowerCase();
+    }
+
+    private Claims parseClaims(String authorizationHeader) {
+        if (authorizationHeader == null || !authorizationHeader.startsWith("Bearer ")) {
+            return null;
         }
         String token = authorizationHeader.substring("Bearer ".length()).trim();
         if (token.isEmpty()) {
-            return false;
+            return null;
         }
         try {
-            Claims claims = Jwts.parserBuilder().setSigningKey(key()).build().parseClaimsJws(token).getBody();
-            Object rolesClaim = claims.get("roles");
-            if (!(rolesClaim instanceof List<?> roles)) {
-                return false;
-            }
-            for (Object role : roles) {
-                if (role instanceof String roleName) {
-                    String normalized = roleName.trim().toUpperCase();
-                    if ("TEACHER".equals(normalized) || "ADMIN".equals(normalized)) {
-                        return true;
-                    }
-                }
-            }
-            return false;
+            return Jwts.parserBuilder().setSigningKey(key()).build().parseClaimsJws(token).getBody();
         } catch (Exception ex) {
-            return false;
+            return null;
         }
     }
 
